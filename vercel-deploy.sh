@@ -1,35 +1,75 @@
+把 vercel-deploy.sh 修改成：
+
 #!/bin/bash
-# vercel-deploy.sh - verlay 一键部署
 
 deploy_verlay() {
-  local VERCEL_TOKEN="$1"
-  local COUNTRY="${2:-JP}"
-  local DOMAIN="$3"
+    local VERCEL_TOKEN="$1"
+    local COUNTRY="${2:-JP}"
+    local DOMAIN="$3"
 
-  echo "=== verlay 部署到 Vercel ==="
-  echo "国家: $COUNTRY"
+    echo "=== verlay 一键部署 ==="
+    echo "部署区域: $COUNTRY"
+    echo "域名: ${DOMAIN:-自动使用 Vercel 域名}"
 
-  cd /tmp || exit 1
-  rm -rf verlay
-  git clone --depth 1 https://github.com/vevc/verlay.git
-  cd verlay || exit 1
+    WORKDIR="/tmp/verlay"
 
-  node apply-region.js "$COUNTRY"
+    rm -rf "$WORKDIR"
 
-  vercel deploy --prod --yes --token "$VERCEL_TOKEN" 2>&1 | tee /tmp/verlay-deploy.log
-  PROJECT_URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.vercel\.app' /tmp/verlay-deploy.log | tail -1)
+    git clone --depth 1 https://github.com/vevc/verlay.git "$WORKDIR"
 
-  UUID=$(node -e "console.log(require('crypto').randomUUID())")
+    cp "$(dirname "$0")/apply-region.js" "$WORKDIR/apply-region.js"
 
-  vercel link --yes --token "$VERCEL_TOKEN" 2>/dev/null || true
+    cd "$WORKDIR" || exit 1
 
-  echo "$UUID" | vercel env add UUID production --token "$VERCEL_TOKEN" 2>/dev/null || true
-  echo "${DOMAIN:-$PROJECT_URL}" | vercel env add DOMAIN production --token "$VERCEL_TOKEN" 2>/dev/null || true
+    node apply-region.js "$COUNTRY"
 
-  vercel deploy --prod --yes --token "$VERCEL_TOKEN" > /dev/null 2>&1
+    echo "=== 第一次部署 ==="
 
-  echo "=== 部署完成 ==="
-  echo "订阅链接: https://${DOMAIN:-$PROJECT_URL}/$UUID"
+    vercel deploy \
+        --prod \
+        --yes \
+        --token "$VERCEL_TOKEN" \
+        2>&1 | tee /tmp/verlay-deploy.log
+
+    PROJECT_URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.vercel\.app' \
+        /tmp/verlay-deploy.log | tail -1)
+
+    if [ -z "$PROJECT_URL" ]; then
+        echo "无法获取 Vercel 项目地址"
+        exit 1
+    fi
+
+    UUID=$(node -e "console.log(require('crypto').randomUUID())")
+
+    echo "UUID: $UUID"
+    echo "Project: $PROJECT_URL"
+
+    vercel link \
+        --yes \
+        --token "$VERCEL_TOKEN" \
+        2>/dev/null || true
+
+    echo "$UUID" | \
+        vercel env add UUID production \
+        --token "$VERCEL_TOKEN" 2>/dev/null || true
+
+    echo "${DOMAIN:-$PROJECT_URL}" | \
+        vercel env add DOMAIN production \
+        --token "$VERCEL_TOKEN" 2>/dev/null || true
+
+    echo "=== 第二次部署 ==="
+
+    vercel deploy \
+        --prod \
+        --yes \
+        --token "$VERCEL_TOKEN"
+
+    echo
+    echo "=============================="
+    echo "部署完成"
+    echo "=============================="
+    echo "订阅地址:"
+    echo "https://${DOMAIN:-$PROJECT_URL}/$UUID"
 }
 
 deploy_verlay "$@"
